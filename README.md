@@ -39,64 +39,69 @@ If you already have a Linux machine (Ubuntu 20.04 recommended), you can install 
 * **`send.py` / `receive.py`**: Python scripts to generate custom INT probes and parse the results.
 
 ## 3. How to Run
-Step 1: Start the Network
+
+**Step 1**: Start the Network
 Run the P4 compiler and start Mininet:
 ```bash
 sudo p4run
-
-Step 2: Configure the Hosts
+```
+**Step 2**: Configure the Hosts
 (Open a new terminal window)
 Run this script to force the network into a known good state:
 ```bash
 sudo bash setup_network.sh
-
-Step 3: Verify Forwarding
+```
+**Step 3**: Verify Forwarding
 Inside the Mininet CLI:
+```bash
 mininet> h1 ping -c 1 10.0.0.2
+```
 If this works, your Control Plane (s1-commands.txt) and Data Plane (telemetry.p4) are functioning correctly.
 
-4. The Telemetry Experiment (Congestion Proof)
-To demonstrate the queue depth telemetry, we must artificially create a "bottleneck" inside the switch and then flood it.
+**Step 4: The Telemetry Experiment (Congestion Proof)**
+* To demonstrate the queue depth telemetry, we must artificially create a "bottleneck" inside the switch and then flood it.
 
-Step 4.1: Constrict the Switch Port
+**Step 4.1**: Constrict the Switch Port
 In a separate terminal, tell the BMv2 switch to limit the output rate of Port 2 (facing Host 2) to just 100 packets per second:
-Bash
+```bash
 simple_switch_CLI
-> set_queue_rate 100
+RuntimeCmd: set_queue_rate 100
+```
 Why do we do this?
-Standard Linux bandwidth limiting (tc) buffers packets in the Kernel (OS level), which is invisible to the P4 switch. 
-By using set_queue_rate, we force the queue to build up inside the Switch's Traffic Manager, 
-allowing standard_metadata.enq_qdepth to actually measure the backlog.
+* Standard Linux bandwidth limiting (tc) buffers packets in the Kernel (OS level), which is invisible to the P4 switch. 
+* By using set_queue_rate, we force the queue to build up inside the Switch's Traffic Manager, allowing standard_metadata.enq_qdepth to actually measure the backlog.
 
-Step 4.2: Start the Telemetry Receiver
+**Step 4.2**: Start the Telemetry Receiver
 On Host 2, start the listener:
-Bash
+```bash
 mininet> h2 python3 receive.py > h2_log.txt &
-
-Step 4.3: Flood the Network
+```
+**Step 4.3**: Flood the Network
 On Host 1, start a UDP flood using iperf:
-Bash
+```bash
 mininet> h1 iperf -u -c 10.0.0.2 -b 5M -t 20 &
+```
 Command Breakdown:
+* -u: UDP Mode. Unlike TCP, UDP does not "back off" when congestion occurs. It keeps blasting packets, guaranteeing the queue fills up.
+* -b 5M: 5 Mbps Bandwidth. Since we limited the port to ~1 Mbps (100 pps), pushing 5 Mbps ensures the buffer overflows immediately.
+* -t 20: 20 Seconds. Gives us plenty of time to send our probe.
 
--u: UDP Mode. Unlike TCP, UDP does not "back off" when congestion occurs. It keeps blasting packets, guaranteeing the queue fills up.
--b 5M: 5 Mbps Bandwidth. Since we limited the port to ~1 Mbps (100 pps), pushing 5 Mbps ensures the buffer overflows immediately.
--t 20: 20 Seconds. Gives us plenty of time to send our probe.
-
-Step 4.4: Send the Probe
+**Step 4.4**: Send the Probe
 While the flood is running, send the custom INT packets:
+```bash
 mininet> h1 python3 send.py
-Step 4.5: Analyze Results
+```
+**Step 4.5**: Analyze Results
 Check the logs on Host 2:
-
-Bash
+```bash
 cat h2_log.txt
+```
 Expected Output:
-
+```bash
 [+] TELEMETRY PACKET RECEIVED!
     Switch ID: 1
     Queue Depth: 63  <-- PROOF OF CONGESTION
-
+```
 A Queue Depth of >0 confirms the switch successfully measured the congestion latency in real-time.
 Congestion Proof (Images/queue_depth_proof.png)
 ####
@@ -105,3 +110,4 @@ If you want to compile the P4 code manually without starting Mininet (useful for
 
 ```bash
 p4c-bm2-ss --arch v1model -o telemetry.json telemetry.p4
+```
